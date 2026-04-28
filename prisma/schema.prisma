@@ -1,135 +1,154 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// Schema Prisma - BixTix
+// Equipe : Tardif Alexandre, Nicolas Elise, Winter Theo
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
+// =====================================================
+// ENUMS
+// =====================================================
 
-model Ticket {
-	ticket_ID				Int					@id @default(autoincrement())
-	//ticketNumber		String					@unique
-	//Users that can access the information
-	customer					User					@relation("Customer", fields: [customerID], references: [user_ID])
-	customerID				String
-	description				String?
-	summary					String?
-	resolution				String
-	createdAt				DateTime				@default(now())
-	updatedAt				DateTime				@updatedAt
-
-	//Relations
-	//1-n
-	company					Company				@relation("SupportedCompany", fields: [companyID], references: [company_ID])
-	companyID				Int
-	
-	//1-n
-	ticketImpact				Impact//				@relation("TicketImpact", fields: [impactID], references: [impact_ID])
-	//impactID					Int
-
-	//1-n
-	ticketUrgency				Urgency//				@relation("TicketUrgency", fields: [urgencyID], references: [urgency_ID])
-	//urgencyID				Int
-
-	//1-n
-	//priority					Priority				@relation("TicketPriority", fields: [priorityID], references: [priority_ID])
-	//priorityID				Int
-
-	//1-n
-	assignedGroup			Group					@relation("TicketSupportTeam", fields: [assignedGroupID], references: [group_ID])
-	assignedGroupID		Int
-	
-	//n-1
-	worklogs					Worklog[]			@relation("TicketWorklogs")
-	
-	status						ITILTicketStatus	@default(NEW)
-	//statusReason			StatusReason
-	
-	
-	assignedTech				User?					@relation("AssignedSupportTech", fields: [assignedTechID], references: [user_ID])
-	assignedTechID			String?
-	
+enum Role {
+  CLIENT
+  AGENT
+  ADMIN
 }
 
-model Worklog {
-	worklog_ID				String					@id @default(uuid())
-
-	parentTicket			Ticket				@relation("TicketWorklogs", fields: [parentTicketID], references: [ticket_ID])
-	parentTicketID			Int
-	description				String
-	createdAt				DateTime				@default(now())
-	
+enum OrderStatus {
+  PENDING
+  PAID
+  CANCELLED
 }
 
-model Company{
-	company_ID				Int					@id @default(autoincrement())
-	company_name			String					@unique
-	
-	assignedTickets			Ticket[]				@relation("SupportedCompany")
-}
+// =====================================================
+// MODELS
+// =====================================================
 
-enum Urgency {
-	VERYLOW4				@map("Very Low - 4")
-	LOW3					@map("Low - 3")
-	MEDIUM2				@map("Medium - 2")
-	HIGH1					@map("High - 1")
-}
-
-enum Impact {
-	PERSONAL				@map("Personal - 5")
-	SMALL					@map("Small - 4")
-	MEDIUM				@map("Medium - 3")
-	WIDESPREAD			@map("Widespread - 2")
-	UNIVERSAL			@map("Universal - 1")
-}
-
-/*
-model Priority {
-	
-	P4
-}
-*/
-
-model Group {
-	group_ID				Int					@id @default(autoincrement())
-	groupName				String
-
-	assignedTickets			Ticket[]				@relation("TicketSupportTeam")
-	
-	assignedTechs			User[]					@relation("AssignedTechGroups")
-}
-
-enum ITILTicketStatus {
-	NEW								@map("New")
-	ASSIGNED						@map("Assigned")
-	IN_PROGRESS					@map("In Progress")
-	IN_REVIEW					@map("In Review")
-	APPROVED						@map("Approved")
-	PENDING						@map("Pending")
-	RESOLVED						@map("Resolved")
-	REJECTED						@map("Rejected")
-	CLOSED							@map("Closed")
-	CANCELLED						@map("Cancelled")
-}
-
+// Utilisateur (synchronise avec Clerk via clerkId)
 model User {
-	user_ID					String					@id @default(cuid())
-	externalId				String					@unique
-	email						String					@unique
-	username					String?
-	createdAt				DateTime				@default(now())
-	updatedAt				DateTime				@updatedAt
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  email     String   @unique
+  name      String?
+  role      Role     @default(CLIENT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-	assignedGroups			Group[]				@relation("AssignedTechGroups")
-	
-	assignedTickets			Ticket[]				@relation("AssignedSupportTech")
-	createdTickets			Ticket[]				@relation("Customer")
+  // Relations
+  cart     Cart?
+  orders   Order[]
+  licenses License[]
+
+  @@index([clerkId])
+  @@index([role])
 }
 
+// Produit = une edition de BixTix (Starter, Pro, Enterprise...)
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String
+  price       Decimal  @db.Decimal(10, 2)
+  imageUrl    String?
+  isActive    Boolean  @default(true)
+  version     Int      @default(0) // Verrou optimiste
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+  licenses   License[]
+
+  @@index([slug])
+  @@index([isActive])
+}
+
+// Panier d'achat (1 par utilisateur)
+model Cart {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items CartItem[]
+}
+
+// Item du panier
+model CartItem {
+  id        String   @id @default(cuid())
+  cartId    String
+  productId String
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Empeche d'ajouter le meme produit deux fois (on incremente la quantite)
+  @@unique([cartId, productId])
+  @@index([cartId])
+}
+
+// Commande creee a la fin du checkout (Lab 3 avec Stripe)
+model Order {
+  id        String      @id @default(cuid())
+  userId    String
+  total     Decimal     @db.Decimal(10, 2)
+  status    OrderStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  // Relations
+  user     User        @relation(fields: [userId], references: [id])
+  items    OrderItem[]
+  licenses License[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+// Ligne de commande (snapshot du prix a l'achat)
+model OrderItem {
+  id              String   @id @default(cuid())
+  orderId         String
+  productId       String
+  quantity        Int
+  priceAtPurchase Decimal  @db.Decimal(10, 2)
+  createdAt       DateTime @default(now())
+
+  // Relations
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+}
+
+// Cle de licence generee apres l'achat
+model License {
+  id        String   @id @default(cuid())
+  key       String   @unique // Format : XXXX-XXXX-XXXX-XXXX
+  userId    String
+  productId String
+  orderId   String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([key])
+}
